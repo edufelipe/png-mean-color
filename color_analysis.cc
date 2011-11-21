@@ -135,7 +135,7 @@ RandomSampler::RandomSampler() {
 RandomSampler::~RandomSampler() {
 }
 
-int RandomSampler::GetSample(int width, int height) {
+int RandomSampler::GetSample(int, int) {
   return rand();
 }
 

@@ -15,7 +15,7 @@ namespace {
 
 // Converts BGRA->RGBA and RGBA->BGRA.
 void ConvertBetweenBGRAandRGBA(const unsigned char* input, int pixel_width,
-                               unsigned char* output, bool* is_opaque) {
+                               unsigned char* output, bool*) {
   for (int x = 0; x < pixel_width; x++) {
     const unsigned char* pixel_in = &input[x * 4];
     unsigned char* pixel_out = &output[x * 4];
@@ -27,7 +27,7 @@ void ConvertBetweenBGRAandRGBA(const unsigned char* input, int pixel_width,
 }
 
 void ConvertRGBAtoRGB(const unsigned char* rgba, int pixel_width,
-                      unsigned char* rgb, bool* is_opaque) {
+                      unsigned char* rgb, bool*) {
   for (int x = 0; x < pixel_width; x++) {
     const unsigned char* pixel_in = &rgba[x * 4];
     unsigned char* pixel_out = &rgb[x * 3];
@@ -94,7 +94,7 @@ class PngDecoderState {
 };
 
 void ConvertRGBtoRGBA(const unsigned char* rgb, int pixel_width,
-                      unsigned char* rgba, bool* is_opaque) {
+                      unsigned char* rgba, bool*) {
   for (int x = 0; x < pixel_width; x++) {
     const unsigned char* pixel_in = &rgb[x * 3];
     unsigned char* pixel_out = &rgba[x * 4];
@@ -106,7 +106,7 @@ void ConvertRGBtoRGBA(const unsigned char* rgb, int pixel_width,
 }
 
 void ConvertRGBtoBGRA(const unsigned char* rgb, int pixel_width,
-                      unsigned char* bgra, bool* is_opaque) {
+                      unsigned char* bgra, bool*) {
   for (int x = 0; x < pixel_width; x++) {
     const unsigned char* pixel_in = &rgb[x * 3];
     unsigned char* pixel_out = &bgra[x * 4];
@@ -250,7 +250,7 @@ void DecodeRowCallback(png_struct* png_ptr, png_byte* new_row,
     memcpy(dest, new_row, state->width * state->output_channels);
 }
 
-void DecodeEndCallback(png_struct* png_ptr, png_info* info) {
+void DecodeEndCallback(png_struct* png_ptr, png_info*) {
   PngDecoderState* state = static_cast<PngDecoderState*>(
       png_get_progressive_ptr(png_ptr));
 
