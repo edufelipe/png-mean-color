@@ -2,31 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ui/gfx/codec/png_codec.h"
+#include "png_codec.h"
 
-#include "base/logging.h"
-#include "base/memory/scoped_ptr.h"
-#include "base/string_util.h"
-#include "ui/gfx/size.h"
-#include "third_party/skia/include/core/SkBitmap.h"
-#include "third_party/skia/include/core/SkUnPreMultiply.h"
-#include "third_party/skia/include/core/SkColorPriv.h"
+#include <iostream>
 
 extern "C" {
-#if defined(USE_SYSTEM_LIBPNG)
 #include <png.h>
-#else
-#include "third_party/libpng/png.h"
-#endif
-
-#if defined(USE_SYSTEM_ZLIB)
 #include <zlib.h>
-#else
-#include "third_party/zlib/zlib.h"
-#endif
 }
-
-namespace gfx {
 
 namespace {
 
@@ -54,77 +37,6 @@ void ConvertRGBAtoRGB(const unsigned char* rgba, int pixel_width,
   }
 }
 
-void ConvertRGBtoSkia(const unsigned char* rgb, int pixel_width,
-                      unsigned char* rgba, bool* is_opaque) {
-  for (int x = 0; x < pixel_width; x++) {
-    const unsigned char* pixel_in = &rgb[x * 3];
-    uint32_t* pixel_out = reinterpret_cast<uint32_t*>(&rgba[x * 4]);
-    *pixel_out = SkPackARGB32(0xFF, pixel_in[0], pixel_in[1], pixel_in[2]);
-  }
-}
-
-void ConvertRGBAtoSkia(const unsigned char* rgb, int pixel_width,
-                       unsigned char* rgba, bool* is_opaque) {
-  int total_length = pixel_width * 4;
-  for (int x = 0; x < total_length; x += 4) {
-    const unsigned char* pixel_in = &rgb[x];
-    uint32_t* pixel_out = reinterpret_cast<uint32_t*>(&rgba[x]);
-
-    unsigned char alpha = pixel_in[3];
-    if (alpha != 255) {
-      *is_opaque = false;
-      *pixel_out = SkPreMultiplyARGB(alpha,
-           pixel_in[0], pixel_in[1], pixel_in[2]);
-    } else {
-      *pixel_out = SkPackARGB32(alpha,
-           pixel_in[0], pixel_in[1], pixel_in[2]);
-    }
-  }
-}
-
-void ConvertSkiatoRGB(const unsigned char* skia, int pixel_width,
-                      unsigned char* rgb, bool* is_opaque) {
-  for (int x = 0; x < pixel_width; x++) {
-    const uint32_t pixel_in = *reinterpret_cast<const uint32_t*>(&skia[x * 4]);
-    unsigned char* pixel_out = &rgb[x * 3];
-
-    int alpha = SkGetPackedA32(pixel_in);
-    if (alpha != 0 && alpha != 255) {
-      SkColor unmultiplied = SkUnPreMultiply::PMColorToColor(pixel_in);
-      pixel_out[0] = SkColorGetR(unmultiplied);
-      pixel_out[1] = SkColorGetG(unmultiplied);
-      pixel_out[2] = SkColorGetB(unmultiplied);
-    } else {
-      pixel_out[0] = SkGetPackedR32(pixel_in);
-      pixel_out[1] = SkGetPackedG32(pixel_in);
-      pixel_out[2] = SkGetPackedB32(pixel_in);
-    }
-  }
-}
-
-void ConvertSkiatoRGBA(const unsigned char* skia, int pixel_width,
-                       unsigned char* rgba, bool* is_opaque) {
-  int total_length = pixel_width * 4;
-  for (int i = 0; i < total_length; i += 4) {
-    const uint32_t pixel_in = *reinterpret_cast<const uint32_t*>(&skia[i]);
-
-    // Pack the components here.
-    int alpha = SkGetPackedA32(pixel_in);
-    if (alpha != 0 && alpha != 255) {
-      SkColor unmultiplied = SkUnPreMultiply::PMColorToColor(pixel_in);
-      rgba[i + 0] = SkColorGetR(unmultiplied);
-      rgba[i + 1] = SkColorGetG(unmultiplied);
-      rgba[i + 2] = SkColorGetB(unmultiplied);
-      rgba[i + 3] = alpha;
-    } else {
-      rgba[i + 0] = SkGetPackedR32(pixel_in);
-      rgba[i + 1] = SkGetPackedG32(pixel_in);
-      rgba[i + 2] = SkGetPackedB32(pixel_in);
-      rgba[i + 3] = alpha;
-    }
-  }
-}
-
 }  // namespace
 
 // Decoder --------------------------------------------------------------------
@@ -145,7 +57,6 @@ class PngDecoderState {
   PngDecoderState(PNGCodec::ColorFormat ofmt, std::vector<unsigned char>* o)
       : output_format(ofmt),
         output_channels(0),
-        bitmap(NULL),
         is_opaque(true),
         output(o),
         row_converter(NULL),
@@ -154,24 +65,8 @@ class PngDecoderState {
         done(false) {
   }
 
-  // Output is an SkBitmap.
-  explicit PngDecoderState(SkBitmap* skbitmap)
-      : output_format(PNGCodec::FORMAT_SkBitmap),
-        output_channels(0),
-        bitmap(skbitmap),
-        is_opaque(true),
-        output(NULL),
-        row_converter(NULL),
-        width(0),
-        height(0),
-        done(false) {
-  }
-
   PNGCodec::ColorFormat output_format;
   int output_channels;
-
-  // An incoming SkBitmap to write to. If NULL, we write to output instead.
-  SkBitmap* bitmap;
 
   // Used during the reading of an SkBitmap. Defaults to true until we see a
   // pixel with anything other than an alpha of 255.
@@ -194,7 +89,8 @@ class PngDecoderState {
   bool done;
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(PngDecoderState);
+  PngDecoderState(const PngDecoderState& other);
+  PngDecoderState& operator= (const PngDecoderState& other);
 };
 
 void ConvertRGBtoRGBA(const unsigned char* rgb, int pixel_width,
@@ -298,12 +194,8 @@ void DecodeInfoCallback(png_struct* png_ptr, png_info* info_ptr) {
         state->row_converter = &ConvertRGBtoBGRA;
         state->output_channels = 4;
         break;
-      case PNGCodec::FORMAT_SkBitmap:
-        state->row_converter = &ConvertRGBtoSkia;
-        state->output_channels = 4;
-        break;
       default:
-        NOTREACHED() << "Unknown output format";
+        std::cerr << "Unknown output format" << std::endl;
         break;
     }
   } else if (channels == 4) {
@@ -320,24 +212,16 @@ void DecodeInfoCallback(png_struct* png_ptr, png_info* info_ptr) {
         state->row_converter = &ConvertBetweenBGRAandRGBA;
         state->output_channels = 4;
         break;
-      case PNGCodec::FORMAT_SkBitmap:
-        state->row_converter = &ConvertRGBAtoSkia;
-        state->output_channels = 4;
-        break;
       default:
-        NOTREACHED() << "Unknown output format";
+        std::cerr << "Unknown output format" << std::endl;
         break;
     }
   } else {
-    NOTREACHED() << "Unknown input channels";
+    std::cerr << "Unknown input channels" << std::endl;
     longjmp(png_jmpbuf(png_ptr), 1);
   }
 
-  if (state->bitmap) {
-    state->bitmap->setConfig(SkBitmap::kARGB_8888_Config,
-                             state->width, state->height);
-    state->bitmap->allocPixels();
-  } else if (state->output) {
+  if (state->output) {
     state->output->resize(
         state->width * state->output_channels * state->height);
   }
@@ -348,17 +232,15 @@ void DecodeRowCallback(png_struct* png_ptr, png_byte* new_row,
   PngDecoderState* state = static_cast<PngDecoderState*>(
       png_get_progressive_ptr(png_ptr));
 
-  DCHECK(pass == 0) << "We didn't turn on interlace handling, but libpng is "
-                       "giving us interlaced data.";
+  if (pass != 0) std::cerr << "We didn't turn on interlace handling, but libpng is "
+                       "giving us interlaced data." << std::endl;
   if (static_cast<int>(row_num) > state->height) {
-    NOTREACHED() << "Invalid row";
+    std::cerr << "Invalid row" << std::endl;
     return;
   }
 
   unsigned char* base = NULL;
-  if (state->bitmap)
-    base = reinterpret_cast<unsigned char*>(state->bitmap->getAddr32(0, 0));
-  else if (state->output)
+  if (state->output)
     base = &state->output->front();
 
   unsigned char* dest = &base[state->width * state->output_channels * row_num];
@@ -452,343 +334,3 @@ bool PNGCodec::Decode(const unsigned char* input, size_t input_size,
   *h = state.height;
   return true;
 }
-
-// static
-bool PNGCodec::Decode(const unsigned char* input, size_t input_size,
-                      SkBitmap* bitmap) {
-  DCHECK(bitmap);
-  png_struct* png_ptr = NULL;
-  png_info* info_ptr = NULL;
-  if (!BuildPNGStruct(input, input_size, &png_ptr, &info_ptr))
-    return false;
-
-  PngReadStructDestroyer destroyer(&png_ptr, &info_ptr);
-  if (setjmp(png_jmpbuf(png_ptr))) {
-    // The destroyer will ensure that the structures are cleaned up in this
-    // case, even though we may get here as a jump from random parts of the
-    // PNG library called below.
-    return false;
-  }
-
-  PngDecoderState state(bitmap);
-
-  png_set_progressive_read_fn(png_ptr, &state, &DecodeInfoCallback,
-                              &DecodeRowCallback, &DecodeEndCallback);
-  png_process_data(png_ptr,
-                   info_ptr,
-                   const_cast<unsigned char*>(input),
-                   input_size);
-
-  if (!state.done) {
-    return false;
-  }
-
-  // Set the bitmap's opaqueness based on what we saw.
-  bitmap->setIsOpaque(state.is_opaque);
-
-  return true;
-}
-
-// static
-SkBitmap* PNGCodec::CreateSkBitmapFromBGRAFormat(
-    std::vector<unsigned char>& bgra, int width, int height) {
-  SkBitmap* bitmap = new SkBitmap();
-  bitmap->setConfig(SkBitmap::kARGB_8888_Config, width, height);
-  bitmap->allocPixels();
-
-  bool opaque = false;
-  unsigned char* bitmap_data =
-      reinterpret_cast<unsigned char*>(bitmap->getAddr32(0, 0));
-  for (int i = width * height * 4 - 4; i >= 0; i -= 4) {
-    unsigned char alpha = bgra[i + 3];
-    if (!opaque && alpha != 255) {
-      opaque = false;
-    }
-    bitmap_data[i + 3] = alpha;
-    bitmap_data[i] = (bgra[i] * alpha) >> 8;
-    bitmap_data[i + 1] = (bgra[i + 1] * alpha) >> 8;
-    bitmap_data[i + 2] = (bgra[i + 2] * alpha) >> 8;
-  }
-
-  bitmap->setIsOpaque(opaque);
-  return bitmap;
-}
-
-// Encoder --------------------------------------------------------------------
-//
-// This section of the code is based on nsPNGEncoder.cpp in Mozilla
-// (Copyright 2005 Google Inc.)
-
-namespace {
-
-// Passed around as the io_ptr in the png structs so our callbacks know where
-// to write data.
-struct PngEncoderState {
-  explicit PngEncoderState(std::vector<unsigned char>* o) : out(o) {}
-  std::vector<unsigned char>* out;
-};
-
-// Called by libpng to flush its internal buffer to ours.
-void EncoderWriteCallback(png_structp png, png_bytep data, png_size_t size) {
-  PngEncoderState* state = static_cast<PngEncoderState*>(png_get_io_ptr(png));
-  DCHECK(state->out);
-
-  size_t old_size = state->out->size();
-  state->out->resize(old_size + size);
-  memcpy(&(*state->out)[old_size], data, size);
-}
-
-void FakeFlushCallback(png_structp png) {
-  // We don't need to perform any flushing since we aren't doing real IO, but
-  // we're required to provide this function by libpng.
-}
-
-void ConvertBGRAtoRGB(const unsigned char* bgra, int pixel_width,
-                      unsigned char* rgb, bool* is_opaque) {
-  for (int x = 0; x < pixel_width; x++) {
-    const unsigned char* pixel_in = &bgra[x * 4];
-    unsigned char* pixel_out = &rgb[x * 3];
-    pixel_out[0] = pixel_in[2];
-    pixel_out[1] = pixel_in[1];
-    pixel_out[2] = pixel_in[0];
-  }
-}
-
-#ifdef PNG_TEXT_SUPPORTED
-class CommentWriter {
- public:
-  explicit CommentWriter(const std::vector<PNGCodec::Comment>& comments)
-      : comments_(comments),
-        png_text_(new png_text[comments.size()]) {
-    for (size_t i = 0; i < comments.size(); ++i)
-      AddComment(i, comments[i]);
-  }
-
-  ~CommentWriter() {
-    for (size_t i = 0; i < comments_.size(); ++i) {
-      free(png_text_[i].key);
-      free(png_text_[i].text);
-    }
-    delete [] png_text_;
-  }
-
-  bool HasComments() {
-    return !comments_.empty();
-  }
-
-  png_text* get_png_text() {
-    return png_text_;
-  }
-
-  int size() {
-    return static_cast<int>(comments_.size());
-  }
-
- private:
-  void AddComment(size_t pos, const PNGCodec::Comment& comment) {
-    png_text_[pos].compression = PNG_TEXT_COMPRESSION_NONE;
-    // A PNG comment's key can only be 79 characters long.
-    DCHECK(comment.key.length() < 79);
-    png_text_[pos].key = base::strdup(comment.key.substr(0, 78).c_str());
-    png_text_[pos].text = base::strdup(comment.text.c_str());
-    png_text_[pos].text_length = comment.text.length();
-#ifdef PNG_iTXt_SUPPORTED
-    png_text_[pos].itxt_length = 0;
-    png_text_[pos].lang = 0;
-    png_text_[pos].lang_key = 0;
-#endif
-  }
-
-  DISALLOW_COPY_AND_ASSIGN(CommentWriter);
-
-  const std::vector<PNGCodec::Comment> comments_;
-  png_text* png_text_;
-};
-#endif  // PNG_TEXT_SUPPORTED
-
-// The type of functions usable for converting between pixel formats.
-typedef void (*FormatConverter)(const unsigned char* in, int w,
-                                unsigned char* out, bool* is_opaque);
-
-// libpng uses a wacky setjmp-based API, which makes the compiler nervous.
-// We constrain all of the calls we make to libpng where the setjmp() is in
-// place to this function.
-// Returns true on success.
-bool DoLibpngWrite(png_struct* png_ptr, png_info* info_ptr,
-                   PngEncoderState* state,
-                   int width, int height, int row_byte_width,
-                   const unsigned char* input, int compression_level,
-                   int png_output_color_type, int output_color_components,
-                   FormatConverter converter,
-                   const std::vector<PNGCodec::Comment>& comments) {
-  // Make sure to not declare any locals here -- locals in the presence
-  // of setjmp() in C++ code makes gcc complain.
-
-  if (setjmp(png_jmpbuf(png_ptr)))
-    return false;
-
-  png_set_compression_level(png_ptr, compression_level);
-
-  // Set our callback for libpng to give us the data.
-  png_set_write_fn(png_ptr, state, EncoderWriteCallback, FakeFlushCallback);
-
-  png_set_IHDR(png_ptr, info_ptr, width, height, 8, png_output_color_type,
-               PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-               PNG_FILTER_TYPE_DEFAULT);
-
-#ifdef PNG_TEXT_SUPPORTED
-  CommentWriter comment_writer(comments);
-  if (comment_writer.HasComments()) {
-    png_set_text(png_ptr, info_ptr, comment_writer.get_png_text(),
-                 comment_writer.size());
-  }
-#endif
-
-  png_write_info(png_ptr, info_ptr);
-
-  if (!converter) {
-    // No conversion needed, give the data directly to libpng.
-    for (int y = 0; y < height; y ++) {
-      png_write_row(png_ptr,
-                    const_cast<unsigned char*>(&input[y * row_byte_width]));
-    }
-  } else {
-    // Needs conversion using a separate buffer.
-    unsigned char* row = new unsigned char[width * output_color_components];
-    for (int y = 0; y < height; y ++) {
-      converter(&input[y * row_byte_width], width, row, NULL);
-      png_write_row(png_ptr, row);
-    }
-    delete[] row;
-  }
-
-  png_write_end(png_ptr, info_ptr);
-  return true;
-}
-
-}  // namespace
-
-// static
-bool PNGCodec::Encode(const unsigned char* input, ColorFormat format,
-                      const Size& size, int row_byte_width,
-                      bool discard_transparency,
-                      const std::vector<Comment>& comments,
-                      std::vector<unsigned char>* output) {
-  return PNGCodec::EncodeWithCompressionLevel(input, format, size,
-                                              row_byte_width,
-                                              discard_transparency,
-                                              comments, Z_DEFAULT_COMPRESSION,
-                                              output);
-}
-
-// static
-bool PNGCodec::EncodeWithCompressionLevel(const unsigned char* input,
-                                          ColorFormat format, const Size& size,
-                                          int row_byte_width,
-                                          bool discard_transparency,
-                                          const std::vector<Comment>& comments,
-                                          int compression_level,
-                                          std::vector<unsigned char>* output) {
-  // Run to convert an input row into the output row format, NULL means no
-  // conversion is necessary.
-  FormatConverter converter = NULL;
-
-  int input_color_components, output_color_components;
-  int png_output_color_type;
-  switch (format) {
-    case FORMAT_RGB:
-      input_color_components = 3;
-      output_color_components = 3;
-      png_output_color_type = PNG_COLOR_TYPE_RGB;
-      break;
-
-    case FORMAT_RGBA:
-      input_color_components = 4;
-      if (discard_transparency) {
-        output_color_components = 3;
-        png_output_color_type = PNG_COLOR_TYPE_RGB;
-        converter = ConvertRGBAtoRGB;
-      } else {
-        output_color_components = 4;
-        png_output_color_type = PNG_COLOR_TYPE_RGB_ALPHA;
-        converter = NULL;
-      }
-      break;
-
-    case FORMAT_BGRA:
-      input_color_components = 4;
-      if (discard_transparency) {
-        output_color_components = 3;
-        png_output_color_type = PNG_COLOR_TYPE_RGB;
-        converter = ConvertBGRAtoRGB;
-      } else {
-        output_color_components = 4;
-        png_output_color_type = PNG_COLOR_TYPE_RGB_ALPHA;
-        converter = ConvertBetweenBGRAandRGBA;
-      }
-      break;
-
-    case FORMAT_SkBitmap:
-      input_color_components = 4;
-      if (discard_transparency) {
-        output_color_components = 3;
-        png_output_color_type = PNG_COLOR_TYPE_RGB;
-        converter = ConvertSkiatoRGB;
-      } else {
-        output_color_components = 4;
-        png_output_color_type = PNG_COLOR_TYPE_RGB_ALPHA;
-        converter = ConvertSkiatoRGBA;
-      }
-      break;
-
-    default:
-      NOTREACHED() << "Unknown pixel format";
-      return false;
-  }
-
-  // Row stride should be at least as long as the length of the data.
-  DCHECK(input_color_components * size.width() <= row_byte_width);
-
-  png_struct* png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING,
-                                                NULL, NULL, NULL);
-  if (!png_ptr)
-    return false;
-  png_info* info_ptr = png_create_info_struct(png_ptr);
-  if (!info_ptr) {
-    png_destroy_write_struct(&png_ptr, NULL);
-    return false;
-  }
-
-  PngEncoderState state(output);
-  bool success = DoLibpngWrite(png_ptr, info_ptr, &state,
-                               size.width(), size.height(), row_byte_width,
-                               input, compression_level, png_output_color_type,
-                               output_color_components, converter, comments);
-  png_destroy_write_struct(&png_ptr, &info_ptr);
-
-  return success;
-}
-
-// static
-bool PNGCodec::EncodeBGRASkBitmap(const SkBitmap& input,
-                                  bool discard_transparency,
-                                  std::vector<unsigned char>* output) {
-  static const int bbp = 4;
-
-  SkAutoLockPixels lock_input(input);
-  DCHECK(input.empty() || input.bytesPerPixel() == bbp);
-
-  return Encode(reinterpret_cast<unsigned char*>(input.getAddr32(0, 0)),
-                FORMAT_SkBitmap, Size(input.width(), input.height()),
-                input.width() * bbp, discard_transparency,
-                std::vector<Comment>(), output);
-}
-
-PNGCodec::Comment::Comment(const std::string& k, const std::string& t)
-    : key(k), text(t) {
-}
-
-PNGCodec::Comment::~Comment() {
-}
-
-}  // namespace gfx
