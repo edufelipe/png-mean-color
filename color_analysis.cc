@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ui/gfx/color_analysis.h"
+#include "color_analysis.h"
+#include "png_codec.h"
 
 #include <algorithm>
 #include <vector>
-
-#include "ui/gfx/codec/png_codec.h"
 
 namespace {
 
@@ -18,7 +17,7 @@ const uint32_t kMaxBrightness = 600;
 const uint32_t kMinDarkness = 100;
 
 // Background Color Modification Constants
-const SkColor kDefaultBgColor = SK_ColorWHITE;
+const color_utils::ARGBColor kDefaultBgColor = color_utils::SetARGBColor(0xFF, 0xFF, 0xFF, 0xFF);
 
 // Support class to hold information about each cluster of pixel data in
 // the KMean algorithm. While this class does not contain all of the points
@@ -155,45 +154,29 @@ int GridSampler::GetSample(int width, int height) {
       calls_ / kNumberOfClusters;
 }
 
-SkColor CalculateRecommendedBgColorForPNG(
-    scoped_refptr<RefCountedMemory> png) {
+ARGBColor CalculateRecommendedBgColorForPNG(const std::vector<uint8_t>& png) {
   RandomSampler sampler;
-  return CalculateRecommendedBgColorForPNG(png, sampler);
-}
-
-SkColor CalculateKMeanColorOfPNG(scoped_refptr<RefCountedMemory> png,
-                                 uint32_t darkness_limit,
-                                 uint32_t brightness_limit) {
-  RandomSampler sampler;
-  return CalculateKMeanColorOfPNG(png, darkness_limit, brightness_limit,
-                                  sampler);
-}
-
-SkColor CalculateRecommendedBgColorForPNG(
-    scoped_refptr<RefCountedMemory> png,
-    KMeanImageSampler& sampler) {
   return CalculateKMeanColorOfPNG(png,
                                   kMinDarkness,
                                   kMaxBrightness,
                                   sampler);
 }
 
-SkColor CalculateKMeanColorOfPNG(scoped_refptr<RefCountedMemory> png,
+ARGBColor CalculateKMeanColorOfPNG(const std::vector<uint8_t>& png,
                                  uint32_t darkness_limit,
                                  uint32_t brightness_limit,
                                  KMeanImageSampler& sampler) {
   int img_width, img_height;
   std::vector<uint8_t> decoded_data;
-  SkColor color = kDefaultBgColor;
+  ARGBColor color = kDefaultBgColor;
 
-  if (png.get() &&
-      png->size() &&
-      gfx::PNGCodec::Decode(png->front(),
-                            png->size(),
-                            gfx::PNGCodec::FORMAT_BGRA,
-                            &decoded_data,
-                            &img_width,
-                            &img_height)) {
+  if (png.size() &&
+      PNGCodec::Decode(&png[0],
+                       png.size(),
+                       PNGCodec::FORMAT_BGRA,
+                       &decoded_data,
+                       &img_width,
+                       &img_height)) {
     std::vector<KMeanCluster> clusters;
     clusters.resize(kNumberOfClusters, KMeanCluster());
 
@@ -308,12 +291,12 @@ SkColor CalculateKMeanColorOfPNG(scoped_refptr<RefCountedMemory> png,
       if (summed_color < brightness_limit && summed_color > darkness_limit) {
         // If we found a valid color just set it and break. We don't want to
         // check the other ones.
-        color = SkColorSetARGB(0xFF, r, g, b);
+        color = SetARGBColor(0xFF, r, g, b);
         break;
       } else if (cluster == clusters.begin()) {
         // We haven't found a valid color, but we are at the first color so
         // set the color anyway to make sure we at least have a value here.
-        color = SkColorSetARGB(0xFF, r, g, b);
+        color = SetARGBColor(0xFF, r, g, b);
       }
     }
   }

@@ -6,20 +6,25 @@
 #define UI_GFX_COLOR_ANALYSIS_H_
 #pragma once
 
-#include "base/basictypes.h"
-#include "base/compiler_specific.h"
-#include "base/memory/ref_counted.h"
-#include "base/memory/ref_counted_memory.h"
-#include "third_party/skia/include/core/SkColor.h"
-#include "ui/base/ui_export.h"
+#include <vector>
+
+#include <stdint.h>
 
 namespace color_utils {
+
+// Replace Skia's Color definition for simplicity.
+typedef uint32_t ARGBColor;
+
+static inline ARGBColor SetARGBColor(uint8_t a, uint8_t r,
+                                     uint8_t g, uint8_t b) {
+    return (a << 24) | (r << 16) | (g << 8) | (b << 0);
+}
 
 // This class exposes the sampling method to the caller, which allows
 // stubbing out for things like unit tests. Might be useful to pass more
 // arguments into the GetSample method in the future (such as which
 // cluster is being worked on, etc.).
-class UI_EXPORT KMeanImageSampler {
+class KMeanImageSampler {
  public:
   virtual int GetSample(int width, int height) = 0;
 
@@ -34,16 +39,16 @@ class RandomSampler : public KMeanImageSampler {
    RandomSampler();
    virtual ~RandomSampler();
 
-   virtual int GetSample(int width, int height) OVERRIDE;
+   virtual int GetSample(int width, int height);
 };
 
 // This sampler will pick pixels from an evenly spaced grid.
-class UI_EXPORT GridSampler : public KMeanImageSampler {
+class GridSampler : public KMeanImageSampler {
   public:
    GridSampler();
    virtual ~GridSampler();
 
-   virtual int GetSample(int width, int height) OVERRIDE;
+   virtual int GetSample(int width, int height);
 
   private:
    // The number of times GetSample has been called.
@@ -57,12 +62,9 @@ class UI_EXPORT GridSampler : public KMeanImageSampler {
 // color of the image, then the color is moved to HSV space so the saturation
 // and luminance can be modified to move the color towards the white end of
 // the spectrum. The color is then moved back to RGB space and returned.
-SkColor CalculateRecommendedBgColorForPNG(scoped_refptr<RefCountedMemory> png);
+ARGBColor CalculateRecommendedBgColorForPNG(const std::vector<uint8_t>& png);
 
-SkColor CalculateRecommendedBgColorForPNG(scoped_refptr<RefCountedMemory> png,
-                                          KMeanImageSampler& sampler);
-
-// Returns an SkColor that represents the calculated dominant color in the png.
+// Returns an ARGBColor that represents the calculated dominant color in the png.
 // This uses a KMean clustering algorithm to find clusters of pixel colors in
 // RGB space.
 // |png| represents the data of a png encoded image.
@@ -99,14 +101,10 @@ SkColor CalculateRecommendedBgColorForPNG(scoped_refptr<RefCountedMemory> png,
 //   |darkness_limit| < SUM(R, G, B) < |brightness_limit|. Return that color.
 //   If no color fulfills that requirement return the color with the largest
 //   weight regardless of whether or not it fulfills the equation above.
-SkColor CalculateKMeanColorOfPNG(scoped_refptr<RefCountedMemory> png,
-                                 uint32_t darkness_limit,
-                                 uint32_t brightness_limit);
-
-UI_EXPORT SkColor CalculateKMeanColorOfPNG(scoped_refptr<RefCountedMemory> png,
-                                           uint32_t darkness_limit,
-                                           uint32_t brightness_limit,
-                                           KMeanImageSampler& sampler);
+ARGBColor CalculateKMeanColorOfPNG(const std::vector<uint8_t>& png,
+                                   uint32_t darkness_limit,
+                                   uint32_t brightness_limit,
+                                   KMeanImageSampler& sampler);
 
 }  // namespace color_utils
 
